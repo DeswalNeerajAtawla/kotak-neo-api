@@ -423,7 +423,7 @@ class DepthTopicData(TopicData):
         if self.updatedFieldsArray[DEPTH_INDEX['MULTIPLIER']]:
             self.multiplier = self.fieldDataArray[DEPTH_INDEX['MULTIPLIER']]
 
-    def prepareData(self, type=None):
+    def prepareData(self):
         # print("INSIDE prepareData")
         self.prepareCommonData()
         # print("\nDepth:", self.feedType, self.exchange, self.symbol)
@@ -440,9 +440,6 @@ class DepthTopicData(TopicData):
                 json_res[c["name"]] = str(e)
         self.updatedFieldsArray = [None] * 100
         # print("INSIDE Parse Data", json_res)
-        if type is not None:
-            json_res["request_type"] = type
-
         return json_res
 
 
@@ -713,8 +710,7 @@ def buf2long(a):
     for i in range(leng):
         j = leng - 1 - i
         val += b[j] << (i * 8)
-    # return val
-    return val if val < 2 ** 31 else val - 2 ** 32
+    return val
 
 
 def buf2string(a):
@@ -737,10 +733,8 @@ class ScripTopicData(TopicData):
         if self.updatedFieldsArray[SCRIP_INDEX["MULTIPLIER"]]:
             self.multiplier = self.fieldDataArray[SCRIP_INDEX["MULTIPLIER"]]
 
-    def prepareData(self,type=None):
+    def prepareData(self):
         self.prepareCommonData()
-        #hardcoded formatting is removed and made it dynamic
-        precesionFormat="{:."+str(self.precision)+"f}"
         if self.updatedFieldsArray[SCRIP_INDEX["LTP"]] or self.updatedFieldsArray[SCRIP_INDEX["CLOSE"]]:
             ltp = self.fieldDataArray[SCRIP_INDEX["LTP"]]
             close = self.fieldDataArray[SCRIP_INDEX["CLOSE"]]
@@ -748,7 +742,7 @@ class ScripTopicData(TopicData):
                 change = ltp - close
                 self.fieldDataArray[SCRIP_INDEX["CHANGE"]] = change
                 self.updatedFieldsArray[SCRIP_INDEX["CHANGE"]] = True
-                self.fieldDataArray[SCRIP_INDEX["PERCHANGE"]] = precesionFormat.format((change / close * 100))
+                self.fieldDataArray[SCRIP_INDEX["PERCHANGE"]] = "{:.4f}".format((change / close * 100))
                 self.updatedFieldsArray[SCRIP_INDEX["PERCHANGE"]] = True
         if self.updatedFieldsArray[SCRIP_INDEX["VOLUME"]] or self.updatedFieldsArray[SCRIP_INDEX["VWAP"]]:
             volume = self.fieldDataArray[SCRIP_INDEX["VOLUME"]]
@@ -763,17 +757,12 @@ class ScripTopicData(TopicData):
             val = self.fieldDataArray[index]
             if self.updatedFieldsArray[index] and val is not None and dataType:
                 if dataType["type"] == FieldTypes["FLOAT32"]:
-                   
-                    val = precesionFormat.format(val / (self.multiplier * self.precisionValue))
-                    # val = "{:.4f}".format(val / (self.multiplier * self.precisionValue))
+                    val = "{:.4f}".format(val / (self.multiplier * self.precisionValue))
                 elif dataType["type"] == FieldTypes["DATE"]:
                     val = getFormatDate(val)
                 # print(str(index) + ":" + dataType["name"] + ":" + str(val))
                 jsonRes[dataType["name"]] = str(val)
         self.updatedFieldsArray = [None] * 100
-        if type is not None:
-            jsonRes["request_type"]=type
-        
         return jsonRes
 
 
@@ -793,7 +782,7 @@ class IndexTopicData(TopicData):
         if self.updatedFieldsArray[INDEX_INDEX["MULTIPLIER"]]:
             self.multiplier = self.fieldDataArray[INDEX_INDEX["MULTIPLIER"]]
 
-    def prepareData(self, type=None):
+    def prepareData(self):
         self.prepareCommonData()
         if self.updatedFieldsArray[INDEX_INDEX["LTP"]] or self.updatedFieldsArray[INDEX_INDEX["CLOSE"]]:
             ltp = self.fieldDataArray[INDEX_INDEX["LTP"]]
@@ -818,9 +807,6 @@ class IndexTopicData(TopicData):
                 # print(str(index) + ":" + data_type["name"] + ":" + str(val))
                 json_res[data_type["name"]] = str(val)
         self.updatedFieldsArray = [None] * 100
-        if type is not None:
-            json_res["request_type"] = type
-
         return json_res
 
 
@@ -955,6 +941,7 @@ class HSWrapper:
                             topic_list[f] = d
                             fcount = buf2long(e[pos: pos + 1])
                             pos += 1
+                            # print("fcount1:", fcount)
                             for index in range(fcount):
                                 fvalue = buf2long(e[pos: pos + 4])
                                 d.setLongValues(index, fvalue)
@@ -973,8 +960,7 @@ class HSWrapper:
                                 pos += data_len
                                 d.setStringValues(fid, str_val)
                                 # print(fid, ":", str_val)
-                                # print("index:", index, "fid:",fid, "val:", str_val)
-                            h.append(d.prepareData("SNAP"))
+                            h.append(d.prepareData())
                         else:
                             print("Invalid topic feed type !")
                     else:
@@ -997,10 +983,9 @@ class HSWrapper:
                                     # d[index] = fvalue
                                     # print("index:", index, "val:", fvalue)
                                     pos += 4
-                            h.append(d.prepareData("SUB"))
+                            h.append(d.prepareData())
                         else:
                             print("Invalid ResponseType: " + c)
-                # print("Final resoonse ",h)
                 return h
             else:
                 if type == BinRespTypes.get("SUBSCRIBE_TYPE") or type == BinRespTypes.get("UNSUBSCRIBE_TYPE"):
@@ -1028,7 +1013,6 @@ class HSWrapper:
 
                 else:
                     if type == BinRespTypes.get("SNAPSHOT"):
-                        # print("type is snapshot ")
                         status = self.getStatus(e, pos)
                         json_res = {}
                         if status == BinRespStat.get("OK"):
@@ -1126,7 +1110,7 @@ class StartServer:
         else:
             print("WebSocket not initialized!")
 
-        ws.run_forever(ping_interval=0, reconnect=5,sslopt={"cert_reqs": ssl.CERT_NONE})
+        ws.run_forever(ping_interval = 30)
 
     def on_open(self, ws):
         # print("[OnOpen]: Function is running in HSWebscoket")
@@ -1146,13 +1130,13 @@ class StartServer:
             self.onmessage(outData)
 
     def on_close(self, ws, close_status_code, close_msg):
-        # print("[OnClose]: Function is running HSWebsocket", close_status_code)
-        if(self.on_close):
-            self.onclose()
+        print("[OnClose]: Function is running HSWebsocket", close_status_code)
+        self.onclose()
 
     def on_error(self, ws, error):
         self.onerror(error)
-        # print('ERROR in HSWebscoket', error)
+        print('ERROR in HSWebscoket', error)
+        print("[OnError]: Function is running HSWebsocket")
 
 
 SCRIP_PREFIX = "sf"
@@ -1257,8 +1241,87 @@ class HSWebSocket:
 
     def close(self):
         ws.close()
-        if self.onclose:
-            self.onclose()
+
+
+#
+# import json
+# import websocket
+#
+#
+# class HSIWebSocket:
+#     def __init__(self, url):
+#         self.hsiSocket = None
+#         self.reqData = None
+#         self.hsiWs = None
+#         self.OPEN = 0
+#         self.readyState = 0
+#         self.url = url
+#         self.start_hsi_server(self.url)
+#
+#     def start_hsi_server(self, url):
+#         self.hsiWs = websocket.WebSocketApp(url,
+#                                             on_message=self.on_message,
+#                                             on_error=self.on_error,
+#                                             on_close=self.on_close)
+#         self.hsiWs.on_open = self.on_open
+#         self.hsiWs.run_forever()
+#
+#     def on_message(self, ws, message):
+#         print("Received message:", message)
+#
+#     def on_error(self, ws, error):
+#         print("Error:", error)
+#
+#     def on_close(self, ws):
+#         print("Connection closed")
+#         self.OPEN = 0
+#         self.readyState = 0
+#         self.hsiWs = None
+#
+#     def on_open(self, ws):
+#         print("Connection established")
+#         self.OPEN = 1
+#         self.readyState = 1
+#
+#     def send(self, d):
+#         reqJson = json.loads(d)
+#         req = None
+#         if reqJson['type'] == 'CONNECTION':
+#             if 'Authorization' in reqJson and 'Sid' in reqJson and 'src' in reqJson:
+#                 req = {
+#                     'type': 'cn',
+#                     'Authorization': reqJson['Authorization'],
+#                     'Sid': reqJson['Sid'],
+#                     'src': reqJson['src']
+#                 }
+#                 self.reqData = req
+#             else:
+#                 if 'x-access-token' in reqJson and 'src' in reqJson:
+#                     req = {
+#                         'type': 'cn',
+#                         'x-access-token': reqJson['x-access-token'],
+#                         'src': reqJson['src']
+#                     }
+#                     self.reqData = req
+#                 else:
+#                     print("Invalid connection mode !")
+#         else:
+#             if reqJson['type'] == 'FORCE_CONNECTION':
+#                 self.reqData = self.reqData['type'] = 'fcn'
+#                 req = self.reqData
+#             else:
+#                 print("Invalid Request !")
+#         if self.hsiWs and req:
+#             print("REQ", req)
+#             self.hsiWs.send(json.dumps(req))
+#         else:
+#             print("Unable to send request! Reason: Connection faulty or request not valid!")
+#
+#     def close(self):
+#         self.hsiWs.close()
+#         self.OPEN = 0
+#         self.readyState = 0
+#         self.hsiWs = None
 
 
 class StartHSIServer:
@@ -1271,18 +1334,17 @@ class StartHSIServer:
         self.onerror = onerror
         self.onclose = onclose
         # self.token, self.sid = token, sid
-        global hsiWs
+        global hsiws
         try:
             # websocket.enableTrace(True)
-            hsiWs = websocket.WebSocketApp(self.url,
+            hsiws = websocket.WebSocketApp(self.url,
                                            on_open=self.on_open,
                                            on_message=self.on_message,
                                            on_error=self.on_error,
                                            on_close=self.on_close)
-            hsiWs.run_forever(ping_interval=5,reconnect=5,sslopt={"cert_reqs": ssl.CERT_NONE})
         except Exception:
             print("WebSocket not supported!")
-        
+        hsiws.run_forever(ping_interval = 30)
 
     def on_message(self, ws, message):
         # print("Received message:", message)
@@ -1293,15 +1355,14 @@ class StartHSIServer:
         self.onerror(error)
 
     def on_close(self, ws, close_status_code, close_msg):
-        # print("Connection closed")
+        print("Connection closed")
         self.OPEN = 0
         self.readyState = 0
-        if hsiWs:
-            hsiWs.close()
+        hsiWs = None
         self.onclose()
 
     def on_open(self, ws):
-        # print("Connection established HSWebSocket")
+        print("Connection established HSWebSocket")
         self.OPEN = 1
         self.readyState = 1
         self.onopen()
@@ -1351,26 +1412,19 @@ class HSIWebSocket:
                     self.reqData = req
                 else:
                     print("Invalid connection mode !")
-        elif reqJson['type'] == 'HB':
-            # self.reqData=reqJson
-            req = {
-                    'type': 'hb'
-                }
-            self.reqData = req
         else:
             if reqJson['type'] == 'FORCE_CONNECTION':
                 self.reqData = self.reqData['type'] = 'fcn'
                 req = self.reqData
             else:
                 print("Invalid Request !")
-        if hsiWs and req:
+        if hsiws and req:
             js_obj = json.dumps(req)
-            hsiWs.send(js_obj)
+            hsiws.send(js_obj)
         else:
             print("Unable to send request! Reason: Connection faulty or request not valid!")
 
     def close(self):
         self.OPEN = 0
         self.readyState = 0
-        if hsiWs:
-            hsiWs.close()
+        hsiws.close()
